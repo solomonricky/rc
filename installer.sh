@@ -9,16 +9,6 @@ sed -i '/^.*pgrep -f restart_wan/d;/^$/d' /usr/lib/rooter/connect/create_connect
 sed -i '/^.*pgrep -f \/etc\/arca\/restart_wan/d;/^$/d' /usr/lib/rooter/connect/create_connect.sh
 sed -i '/if \[ -e \/etc\/arca\/restart_wan \].*$/,/fi/d' /usr/lib/rooter/connect/create_connect.sh
 
-if [ $(uname -a | cut -d' ' -f2) != "QWRT" ]; then
-        echo "Only QWRT is supported"
-        exit 1
-fi
-
-if [ "$(cat /tmp/sysinfo/model)" != "Arcadyan AW1000" ]; then
-        echo "Only Arcadyan AW1000 is supported"
-        exit 1
-fi
-
 if [ ! -e /etc/arca ]; then
         mkdir -p /etc/arca
 fi
@@ -53,11 +43,11 @@ cat << 'EOF' >/etc/arca/change_ip
 [ $(pgrep -f /etc/arca/change_ip | wc -l) -gt 2 ] && exit 0
 
 QMIChangeWANIP() {
-        /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=0 >/dev/null 2>&1 && /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=1 /dev/null 2>&1
+        ifup wan1
 }
 
 MBIMChangeWANIP() {
-        /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=0 >/dev/null 2>&1 && /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=1 /dev/null 2>&1 && ifup wan && ifup wan1
+        /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=0 >/dev/null 2>&1 && /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 AT+CFUN=1 /dev/null 2>&1 && ifup wan1
 }
 
 log() {
@@ -66,44 +56,43 @@ log() {
 
 log "Start RC script"
 
-if [ $(cat /etc/arca/counter | wc -l) -eq 0 ]; then
-        n=0
-else
-        n=$(cat /etc/arca/counter)
-fi
-
+n=0
 >/tmp/wan_status
+>/etc/arca/counter
 while true; do
-        if [ $(curl -I -s -o /dev/null -w "%{http_code}" https://www.youtube.com) -eq 200 ] && [ $(curl -I -s -o /dev/null -w "%{http_code}" https://fast.com) -eq 200 ]; then
-                echo -e "$(date) \t Internet is fine" >>/tmp/wan_status
+        if [ $(curl -I -s -o /dev/null -w "%{http_code}" --max-time 5 https://www.youtube.com) -eq 200 ] && [ $(curl -I -s -o /dev/null -w "%{http_code}" --max-time 5 https://fast.com) -eq 200 ]; then
+                echo -e "$(date) \t Internet is fine" | tee -a /tmp/wan_status
+                >/etc/arca/counter
         else
-                log "Modem disconnected"
-                if [ $(uci get modem.modem1.proto) -eq 88 ]; then
+                log "RC: Modem disconnected"
+                if [ $(uci get modem.modem1.proto) -eq 2 ]; then
                         QMIChangeWANIP
-                        log "QMI Protocol restarted"
+                        log "RC: QMI Protocol restarted"
                 else
                         MBIMChangeWANIP
-                        log "MBIM Protocol restarted"
+                        log "RC: MBIM Protocol restarted"
                 fi
-                sleep 10
-                WAN_IP=$(curl -s ipinfo.io/ip)
+                sleep 20
+                WAN_IP=$(curl --max-time 10 -s ip.sb)
                 if [ ! -z ${WAN_IP} ]; then
-                        log "WAN IP changed to ${WAN_IP}"
+                        log "RC: WAN IP changed to ${WAN_IP}"
                         >/etc/arca/counter
                 else
                         n=$(( $n + 1 ))
                         echo "$n" >/etc/arca/counter
                         if [ $(cat /etc/arca/counter) -eq 2 ]; then
-                                /usr/lib/rooter/gcom/gcom-locked /dev/ttyUSB2 run-at.gcom 1 "AT+CFUN=1,1"
-                                log "Modem module restarted"
+                                n=$(( $n + 1 ))
+                                echo "$n" >/etc/arca/counter
+                                sleep 2
+                                log "RC: Modem restarted"
+                                reboot
                         elif [ $(cat /etc/arca/counter) -ge 3 ]; then
-                                log "Modem disconnected. Check your SIM card"
-                                >/etc/arca/counter
+                                log "RC: Modem disconnected. Check your SIM card"
                                 exit 1
                         fi
                 fi
         fi
-        sleep 30
+        sleep 20
 done
 EOF
 
