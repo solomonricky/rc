@@ -63,6 +63,7 @@ while true; do
                 echo -e "$(date) \t Internet is fine" | tee -a /tmp/wan_status
                 >/etc/arca/counter
         else
+                echo -e "$(date) \t Internet is down" | tee -a /tmp/wan_status
                 log "RC: Modem disconnected"
                 if [ $(uci get modem.modem1.proto) -eq 2 ]; then
                         QMIChangeWANIP
@@ -74,6 +75,7 @@ while true; do
                 sleep 20
                 WAN_IP=$(curl --max-time 10 -s ip.sb)
                 if [ ! -z ${WAN_IP} ]; then
+                        echo -e "$(date) \t Internet is restored" | tee -a /tmp/wan_status
                         log "RC: WAN IP changed to ${WAN_IP}"
                         >/etc/arca/counter
                 else
